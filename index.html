@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Mi Entreno</title>
+
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <!-- iOS Add to Home Screen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mi Entreno">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+  <meta name="theme-color" content="#0b0d10">
+</head>
+
+<body>
+  <!-- ✅ Bulk modal adentro del body (HTML válido) -->
+  <dialog id="bulkModal">
+    <form method="dialog" class="modal">
+      <h3>Cargar ejercicios</h3>
+
+      <div class="field">
+        <span>Pegá el JSON acá (lo que yo te paso)</span>
+        <textarea id="bulkText" class="input" rows="10" placeholder='Ejemplo:
+[
+  {"name":"Press banca","note":"","sets":[{"reps":"8","kg":"","rir":""}]}
+]'></textarea>
+      </div>
+
+      <div class="modal__actions">
+        <button value="cancel" class="btn">Cancelar</button>
+        <button id="bulkOk" value="default" class="btn btn--primary">Cargar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <header class="topbar">
+    <div class="topbar__row">
+      <div class="topbar__left">
+        <h1>Mi Entreno</h1>
+        <div class="muted" id="subtitle">Rutinas guardadas en este iPhone</div>
+      </div>
+
+      <div class="topbar__right">
+        <div class="toggleWrap">
+          <button id="timerReset" class="miniReset" type="button" title="Reset temporizador">⟲</button>
+          <span id="timerModeLabel" class="toggleLabel">1.5</span>
+          <button id="timerMode" class="toggleBtn" type="button" aria-pressed="false" title="Modo temporizador"></button>
+        </div>
+        <div id="globalTimer" class="globalTimer">--:--</div>
+      </div>
+    </div>
+
+    <div class="topbar__actions">
+      <button id="btnAddDay" class="btn btn--primary">+ Día</button>
+      <button id="btnExport" class="btn">Backup</button>
+      <button id="btnImport" class="btn">Restaurar</button>
+      <button id="btnReset" class="btn btn--danger">Reset</button>
+      <button id="btnWeight" class="btn">Progrs</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <nav class="tabs">
+      <button class="tab tab--active" id="tabDays">Días</button>
+      <button class="tab" id="tabRoutine">Rutina</button>
+    </nav>
+
+    <section class="card" id="screenDays">
+      <h2>Días</h2>
+      <div id="daysList" class="list"></div>
+    </section>
+
+    <section class="card" id="screenRoutine" hidden>
+      <div id="dayView" class="empty">Elegí un día o creá uno nuevo.</div>
+    </section>
+  </main>
+
+  <!-- Modal -->
+  <dialog id="modal">
+    <form method="dialog" class="modal">
+      <h3 id="modalTitle">Título</h3>
+
+      <label class="field">
+        <span id="modalLabel">Nombre</span>
+        <input id="modalInput" class="input" type="text" autocomplete="off" required />
+      </label>
+
+      <div class="modal__actions">
+        <button value="cancel" class="btn">Cancelar</button>
+        <button id="modalOk" value="default" class="btn btn--primary">Ok</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input id="fileInput" type="file" accept="application/json" hidden />
+
+  <script src="app.js"></script>
+
+  <script>
+    // Tabs (vertical y simple)
+    const tabDays = document.getElementById("tabDays");
+    const tabRoutine = document.getElementById("tabRoutine");
+    const screenDays = document.getElementById("screenDays");
+    const screenRoutine = document.getElementById("screenRoutine");
+
+    function showDays(){
+      tabDays.classList.add("tab--active");
+      tabRoutine.classList.remove("tab--active");
+      screenDays.hidden = false;
+      screenRoutine.hidden = true;
+    }
+    function showRoutine(){
+      tabRoutine.classList.add("tab--active");
+      tabDays.classList.remove("tab--active");
+      screenDays.hidden = true;
+      screenRoutine.hidden = false;
+    }
+
+    tabDays.addEventListener("click", showDays);
+    tabRoutine.addEventListener("click", showRoutine);
+
+    // Cuando seleccionás un día, pasás a Rutina
+    document.addEventListener("click", (e) => {
+      if (e.target.closest(".dayItem")) showRoutine();
+    });
+
+    // Service Worker (offline)
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js");
+    }
+  </script>
+</body>
+</html>
