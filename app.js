@@ -24,6 +24,11 @@ const $bulkText  = document.getElementById("bulkText");
 
 /* ✅ modo vista */
 let viewMode = "workout"; // "workout" | "weight"
+let habitCalSelectedDate = null;
+let progressView = "charts"; // "charts" | "history"
+let progressHistoryType = null; // "weight" | "sleep" | "eat"
+let progressHistoryFrom = "";
+let progressHistoryTo = "";
 
 const REST_MODE_KEY = "mi_entreno_rest_mode";
 let restModeMinutes = Number(localStorage.getItem(REST_MODE_KEY)) === 3 ? 3 : 1.5;
@@ -51,16 +56,17 @@ function saveState(){
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return { days: [], history: [], weights: [], habits: [] };
+    if(!raw) return { days: [], history: [], weights: [], habits: [], habitLogs: [] };
 
     const parsed = JSON.parse(raw);
     if(!parsed?.days) parsed.days = [];
     if(!Array.isArray(parsed.history)) parsed.history = [];
     if(!Array.isArray(parsed.weights)) parsed.weights = [];
     if(!Array.isArray(parsed.habits)) parsed.habits = [];
+    if(!Array.isArray(parsed.habitLogs)) parsed.habitLogs = [];
     return parsed;
   }catch{
-    return { days: [], history: [], weights: [], habits: [] };
+    return { days: [], history: [], weights: [], habits: [], habitLogs: [] };
   }
 }
 
@@ -98,6 +104,8 @@ function normalizeStateExercises(){
 
 function normalizeHabits(){
   if(!Array.isArray(state.habits)) state.habits = [];
+  if(!Array.isArray(state.habitLogs)) state.habitLogs = [];
+  syncHabitLogs();
 }
 
 function esc(str){
@@ -145,6 +153,8 @@ function cloneWorkoutDay(day){
     name: day.name,
     exercises: (day.exercises || []).map(ex => ({
       name: ex.name,
+      restMinutes: ex.restMinutes,
+      seriesCount: ex.seriesCount,
       note: ex.note || "",
       sets: (ex.sets || []).map(s => ({
         series: s.series ?? "",
@@ -154,6 +164,17 @@ function cloneWorkoutDay(day){
       }))
     }))
   };
+}
+
+function resetExerciseSeriesCounts(day){
+  let changed = false;
+  for(const ex of day?.exercises || []){
+    if(typeof ex.seriesCount === "number" && ex.seriesCount !== 0){
+      ex.seriesCount = 0;
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function formatTimer(ms){
@@ -222,17 +243,30 @@ function linePoints(values, w, h, padding){
   }).filter(Boolean).join(" ");
 }
 
-function lineChartHTML(values, label){
+function lineChartHTML(values, label, key){
   const w = 320;
   const h = 120;
   const padding = 10;
   const pts = linePoints(values, w, h, padding);
   const last = values.slice().reverse().find(v=> typeof v === "number" && isFinite(v));
+  const nums = values.filter(v=> typeof v === "number" && isFinite(v));
+  const min = nums.length ? Math.min(...nums) : null;
+  const max = nums.length ? Math.max(...nums) : null;
+  const fmt = (n)=>{
+    if(typeof n !== "number" || !isFinite(n)) return "-";
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  };
+  const k = (key ?? "").toString();
   return `
-    <div class="lineChart">
+    <div class="lineChart" data-chart="${esc(k)}" role="button" tabindex="0">
       <div class="lineChart__head">
         <div class="lineChart__label">${esc(label)}</div>
         <div class="lineChart__value">${last ?? "-"}</div>
+      </div>
+      <div class="lineChart__stats">
+        <span>Min: <b>${esc(fmt(min))}</b></span>
+        <span>Máx: <b>${esc(fmt(max))}</b></span>
+        <span>Actual: <b>${esc(fmt(last))}</b></span>
       </div>
       <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="lineChart__svg">
         <rect x="0" y="0" width="${w}" height="${h}" rx="10" ry="10" class="lineChart__bg"></rect>
@@ -255,6 +289,51 @@ function ymdFromISO(iso){
 function monthLabel(y,m){
   const names = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   return `${names[m]} ${y}`;
+}
+
+function latestHistoryEntryForDate(key){
+  const list = (state.history || []).filter(e => ymdFromISO(e.at) === key);
+  if(!list.length) return null;
+  return list.slice().sort((a,b)=> new Date(b.at) - new Date(a.at))[0];
+}
+
+function getHabitLog(key){
+  return (state.habitLogs || []).find(h => h.date === key) ?? null;
+}
+
+function syncHabitLogs(){
+  if(!Array.isArray(state.habitLogs)) state.habitLogs = [];
+  if(!Array.isArray(state.habits)) state.habits = [];
+
+  const habitIds = new Set(state.habits.map(h=> h.id));
+
+  state.habitLogs = state.habitLogs.map(log=>{
+    const map = new Map((log.habits || []).map(h=> [h.id, h.done]));
+    const habits = state.habits.map(h=> ({
+      id: h.id,
+      name: h.name,
+      done: !!map.get(h.id)
+    }));
+    return { date: log.date, habits };
+  }).filter(log => log.habits.some(h=> habitIds.has(h.id)));
+}
+
+function ensureHabitLog(key){
+  let log = getHabitLog(key);
+  if(log) return log;
+
+  const base = latestHistoryEntryForDate(key)?.habits || [];
+  const baseMap = new Map(base.map(h=> [h.id, !!h.done]));
+
+  const habits = (state.habits || []).map(h=> ({
+    id: h.id,
+    name: h.name,
+    done: !!baseMap.get(h.id)
+  }));
+
+  log = { date: key, habits };
+  state.habitLogs.push(log);
+  return log;
 }
 
 /* detalle en página */
@@ -494,23 +573,49 @@ function renderHabitsCalendar(hostEl){
     return list.slice().sort((a,b)=> new Date(b.at) - new Date(a.at))[0];
   }
 
-  function renderDetail(key){
+  function habitsForDate(key){
+    const log = getHabitLog(key);
+    if(log && Array.isArray(log.habits)) return log.habits;
+
     const entry = latestEntryForDate(key);
-    if(!entry || !Array.isArray(entry.habits) || entry.habits.length === 0){
-      $detail.innerHTML = `<div class="pill">Sin hábitos registrados el ${esc(key)}</div>`;
+    if(entry && Array.isArray(entry.habits)) return entry.habits;
+
+    return [];
+  }
+
+  function renderDetail(key){
+    habitCalSelectedDate = key;
+
+    if(!state.habits.length){
+      $detail.innerHTML = `<div class="pill">No hay hábitos creados.</div>`;
       return;
     }
-    const rows = entry.habits.map(h=>{
+
+    const log = ensureHabitLog(key);
+    const rows = (log.habits || []).map(h=>{
       return `
         <div class="calItem">
           <div class="habitRow">
             <span class="habitName">${esc(h.name || "")}</span>
-            <span class="habitStatus ${h.done ? "habitStatus--on" : ""}">${h.done ? "Hecho" : "No"}</span>
+            <button class="habitCheck ${h.done ? "habitCheck--on" : ""}" data-habit-date="${esc(key)}" data-habit-id="${esc(h.id)}" aria-pressed="${h.done ? "true" : "false"}"></button>
           </div>
         </div>
       `;
     }).join("");
     $detail.innerHTML = rows;
+
+    $detail.querySelectorAll("[data-habit-date][data-habit-id]").forEach(btn=>{
+      btn.onclick = ()=>{
+        const date = btn.getAttribute("data-habit-date");
+        const id = btn.getAttribute("data-habit-id");
+        const log = ensureHabitLog(date);
+        const target = (log.habits || []).find(x=> x.id === id);
+        if(!target) return;
+        target.done = !target.done;
+        saveState();
+        render();
+      };
+    });
   }
 
   for(let i=0;i<startDow;i++){
@@ -522,8 +627,7 @@ function renderHabitsCalendar(hostEl){
   for(let d=1; d<=daysInMonth; d++){
     const dt = new Date(y, m, d);
     const key = ymdLocal(dt);
-    const entry = latestEntryForDate(key);
-    const habits = entry?.habits || [];
+    const habits = habitsForDate(key);
     const total = habits.length;
     const done = habits.filter(h=> h.done).length;
 
@@ -553,7 +657,11 @@ function renderHabitsCalendar(hostEl){
     render();
   };
 
-  $detail.innerHTML = `<div class="pill">Tocá un día para ver hábitos</div>`;
+  if(habitCalSelectedDate){
+    renderDetail(habitCalSelectedDate);
+  }else{
+    $detail.innerHTML = `<div class="pill">Tocá un día para ver hábitos</div>`;
+  }
 }
 
 /* ============ BULK IMPORT HELPERS ============ */
@@ -646,6 +754,33 @@ function renderWeightView(){
   const eatSeries = (state.history || []).slice(0, 12).reverse().map(x=> typeof x.eatScore === "number" ? x.eatScore : null);
 
   $dayView.className = "";
+  let progressInner = `
+    ${lineChartHTML(weightSeries, "Peso", "weight")}
+    ${lineChartHTML(sleepSeries, "Sueño", "sleep")}
+    ${lineChartHTML(eatSeries, "Comida", "eat")}
+    <div class="muted" style="margin-top:8px;">Tocá un gráfico para ver el historial.</div>
+  `;
+
+  if(progressView === "history" && progressHistoryType){
+    const title = progressHistoryType === "weight" ? "Historial de peso"
+                : progressHistoryType === "sleep" ? "Historial de sueño"
+                : "Historial de comida";
+
+    progressInner = `
+      <div class="progressHistory">
+        <div class="progressHistory__head">
+          <div class="progressHistory__title">${esc(title)}</div>
+          <button id="progressBack" class="btn">Volver a gráficos</button>
+        </div>
+        <div class="progressHistory__filters">
+          <input id="progressFrom" class="input input--date" type="date" value="${esc(progressHistoryFrom)}">
+          <input id="progressTo" class="input input--date" type="date" value="${esc(progressHistoryTo)}">
+        </div>
+        <div id="progressHistoryList"></div>
+      </div>
+    `;
+  }
+
   $dayView.innerHTML = `
     <div class="dayHeader">
       <div class="dayTitle">
@@ -678,9 +813,7 @@ function renderWeightView(){
 
     <div class="card" style="padding:12px;">
       <div style="font-weight:900; margin-bottom:10px;">Evolución (lineal)</div>
-      ${lineChartHTML(weightSeries, "Peso")}
-      ${lineChartHTML(sleepSeries, "Sueño")}
-      ${lineChartHTML(eatSeries, "Comida")}
+      ${progressInner}
     </div>
 
     <div class="card" style="padding:12px;">
@@ -696,11 +829,6 @@ function renderWeightView(){
       <div style="font-weight:900; margin-bottom:10px;">Calendario de hábitos</div>
       <div id="habitCalendar"></div>
     </div>
-
-    <div style="display:flex; flex-direction:column; gap:10px;">
-      <div style="font-weight:900; margin-top:4px;">Historial</div>
-      <div id="weightList"></div>
-    </div>
   `;
 
   document.getElementById("backToWorkout").onclick = ()=>{
@@ -708,33 +836,117 @@ function renderWeightView(){
     render();
   };
 
-  const $list = document.getElementById("weightList");
-  if(!items.length){
-    $list.innerHTML = `<div class="empty">Cargá tu primer peso con “+ Registrar kg”.</div>`;
-  }else{
-    $list.innerHTML = items.map(it=>{
-      return `
-        <div class="calItem">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-            <div>
-              <div><b>${esc(String(it.kg ?? "-"))} kg</b></div>
-              <div class="calItemSmall">${esc(fmtDateTime(it.at))}</div>
-            </div>
-            <button class="btn btn--danger" data-wdel="${esc(it.id)}">✕</button>
-          </div>
-        </div>
-      `;
-    }).join("");
-
-    $list.querySelectorAll("[data-wdel]").forEach(btn=>{
-      btn.onclick = () => {
-        const id = btn.getAttribute("data-wdel");
-        if(!confirm("¿Borrar este peso?")) return;
-        state.weights = (state.weights || []).filter(x => x.id !== id);
-        saveState();
+  if(progressView === "charts"){
+    document.querySelectorAll(".lineChart[data-chart]").forEach(el=>{
+      const key = el.getAttribute("data-chart");
+      if(!key) return;
+      el.onclick = ()=> {
+        progressView = "history";
+        progressHistoryType = key;
         render();
       };
+      el.onkeydown = (e)=>{
+        if(e.key === "Enter" || e.key === " "){
+          e.preventDefault();
+          progressView = "history";
+          progressHistoryType = key;
+          render();
+        }
+      };
     });
+  }else{
+    const backBtn = document.getElementById("progressBack");
+    if(backBtn){
+      backBtn.onclick = ()=>{
+        progressView = "charts";
+        progressHistoryType = null;
+        render();
+      };
+    }
+
+    const fromInput = document.getElementById("progressFrom");
+    const toInput = document.getElementById("progressTo");
+    if(fromInput){
+      fromInput.oninput = ()=>{
+        progressHistoryFrom = fromInput.value;
+        render();
+      };
+    }
+    if(toInput){
+      toInput.oninput = ()=>{
+        progressHistoryTo = toInput.value;
+        render();
+      };
+    }
+
+    const list = document.getElementById("progressHistoryList");
+    if(list && progressHistoryType){
+      const from = progressHistoryFrom || "";
+      const to = progressHistoryTo || "";
+      const inRange = (iso)=>{
+        const d = ymdFromISO(iso);
+        if(from && d < from) return false;
+        if(to && d > to) return false;
+        return true;
+      };
+
+      if(progressHistoryType === "weight"){
+        const items = (state.weights || []).filter(x=> x?.at && inRange(x.at));
+        if(!items.length){
+          list.innerHTML = `<div class="empty">No hay registros en ese rango.</div>`;
+        }else{
+          list.innerHTML = items.map(it=>`
+            <div class="calItem">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                <div>
+                  <div><b>${esc(String(it.kg ?? "-"))} kg</b></div>
+                  <div class="calItemSmall">${esc(fmtDateTime(it.at))}</div>
+                </div>
+                <button class="btn btn--danger" type="button" data-wdel="${esc(it.id)}">✕</button>
+              </div>
+            </div>
+          `).join("");
+
+          list.querySelectorAll("[data-wdel]").forEach(btn=>{
+            btn.onclick = () => {
+              const id = btn.getAttribute("data-wdel");
+              if(!confirm("¿Borrar este peso?")) return;
+              state.weights = (state.weights || []).filter(x => x.id !== id);
+              saveState();
+              render();
+            };
+          });
+        }
+      }else if(progressHistoryType === "sleep"){
+        const items = (state.history || []).filter(h => typeof h.sleepScore === "number" && h?.at && inRange(h.at));
+        if(!items.length){
+          list.innerHTML = `<div class="empty">No hay registros en ese rango.</div>`;
+        }else{
+          list.innerHTML = items.map(it=>`
+            <div class="calItem">
+              <div>
+                <div><b>${esc(String(it.sleepScore ?? "-"))}/10</b></div>
+                <div class="calItemSmall">${esc(fmtDateTime(it.at))}</div>
+              </div>
+            </div>
+          `).join("");
+        }
+      }else if(progressHistoryType === "eat"){
+        const items = (state.history || []).filter(h => typeof h.eatScore === "number" && h?.at && inRange(h.at));
+        if(!items.length){
+          list.innerHTML = `<div class="empty">No hay registros en ese rango.</div>`;
+        }else{
+          list.innerHTML = items.map(it=>`
+            <div class="calItem">
+              <div>
+                <div><b>${esc(String(it.eatScore ?? "-"))}/10</b></div>
+                <div class="calItemSmall">${esc(fmtDateTime(it.at))}</div>
+              </div>
+            </div>
+          `).join("");
+        }
+      }
+    }
   }
 
   document.getElementById("addWeightEntry").onclick = async () => {
@@ -764,13 +976,11 @@ function renderWeightView(){
     $habitList.innerHTML = `<div class="empty" style="min-height:80px;">No hay hábitos todavía.</div>`;
   }else{
     $habitList.innerHTML = state.habits.map(h=>{
-      const done = !!latestHabits.find(x=> x.id === h.id)?.done;
       return `
         <div class="calItem">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
             <div><b>${esc(h.name)}</b></div>
             <div class="row">
-              <button class="btn ${done ? "btn--primary" : ""}" data-habit-toggle="${esc(h.id)}">${done ? "Hecho" : "No"}</button>
               <button class="btn btn--danger" data-habit-del="${esc(h.id)}">✕</button>
             </div>
           </div>
@@ -787,6 +997,7 @@ function renderWeightView(){
     });
     if(!name) return;
     state.habits.push({ id: uid(), name });
+    syncHabitLogs();
     saveState();
     render();
   };
@@ -796,22 +1007,7 @@ function renderWeightView(){
       const id = btn.getAttribute("data-habit-del");
       if(!confirm("¿Borrar hábito?")) return;
       state.habits = (state.habits || []).filter(h=> h.id !== id);
-      saveState();
-      render();
-    };
-  });
-
-  $habitList.querySelectorAll("[data-habit-toggle]").forEach(btn=>{
-    btn.onclick = ()=>{
-      if(!latestEntry){
-        alert("Primero guardá un entrenamiento para marcar hábitos.");
-        return;
-      }
-      const id = btn.getAttribute("data-habit-toggle");
-      if(!latestEntry.habits) latestEntry.habits = [];
-      const existing = latestEntry.habits.find(x=> x.id === id);
-      if(existing) existing.done = !existing.done;
-      else latestEntry.habits.push({ id, done:true });
+      syncHabitLogs();
       saveState();
       render();
     };
@@ -940,6 +1136,9 @@ function renderWorkoutView(){
     };
 
     state.history.unshift(entry);
+    if(resetExerciseSeriesCounts(day)){
+      saveState();
+    }
     saveState();
     render();
   };
@@ -1230,8 +1429,16 @@ $btnAddDay.onclick = async ()=>{
 };
 
 $btnReset.onclick = ()=>{
+  const wantSave = confirm("¿Querés guardar una copia antes de resetear?");
+  if(wantSave){
+    const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "mi-entreno-backup.json";
+    a.click();
+  }
   if(!confirm("¿Borrar todo?")) return;
-  state = { days: [], history: [], weights: [], habits: [] };
+  state = { days: [], history: [], weights: [], habits: [], habitLogs: [] };
   selectedDayId = null;
   viewMode = "workout";
   saveState();
@@ -1264,8 +1471,10 @@ $fileInput.onchange = async ()=>{
     if(!Array.isArray(data.history)) data.history = [];
     if(!Array.isArray(data.weights)) data.weights = [];
     if(!Array.isArray(data.habits)) data.habits = [];
+    if(!Array.isArray(data.habitLogs)) data.habitLogs = [];
     state = data;
     normalizeStateExercises();
+    normalizeHabits();
 
     selectedDayId = state.days[0]?.id ?? null;
     saveState();
