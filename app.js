@@ -337,6 +337,58 @@ function ensureHabitLog(key){
 }
 
 /* detalle en página */
+function workoutText(item){
+  const sleep = (typeof item.sleepScore === "number") ? `${item.sleepScore}/10` : "-";
+  const eat   = (typeof item.eatScore === "number") ? `${item.eatScore}/10` : "-";
+
+  const lines = [];
+  lines.push(`${item.dayName} - ${fmtDateTime(item.at)}`);
+  lines.push(`Dormí: ${sleep} · Comí: ${eat}`);
+
+  const w = item.workout || { exercises: [] };
+  for(const ex of (w.exercises || [])){
+    lines.push("");
+    lines.push(String(ex.name || "Ejercicio"));
+    for(const s of (ex.sets || [])){
+      const parts = [];
+      if(s.series) parts.push(`${s.series}x`);
+      if(s.reps) parts.push(`${s.reps}`);
+      if(s.kg) parts.push(`@${s.kg}kg`);
+      if(s.rir) parts.push(`RIR${s.rir}`);
+      const line = parts.join(" ").trim();
+      if(line) lines.push(`- ${line}`);
+    }
+    const note = (ex.note || "").trim();
+    if(note) lines.push(`Nota: ${note}`);
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function copyText(text){
+  try{
+    if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  }catch{}
+
+  try{
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    return true;
+  }catch{
+    return false;
+  }
+}
+
 function workoutDetailsHTML(item){
   const sleep = (typeof item.sleepScore === "number") ? `${item.sleepScore}/10` : "-";
   const eat   = (typeof item.eatScore === "number") ? `${item.eatScore}/10` : "-";
@@ -458,6 +510,7 @@ function renderCalendarForDay(day, hostEl){
             </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
               <button class="btn" data-view="${esc(e.id)}">Ver</button>
+              <button class="btn" data-copy="${esc(e.id)}">Copiar</button>
               <button class="btn btn--danger" data-del="${esc(e.id)}">✕</button>
             </div>
           </div>
@@ -482,6 +535,16 @@ function renderCalendarForDay(day, hostEl){
         state.history = (state.history || []).filter(h => h.id !== id);
         saveState();
         render();
+      };
+    });
+
+    $detailLst.querySelectorAll("[data-copy]").forEach(btn=>{
+      btn.onclick = async () => {
+        const id = btn.getAttribute("data-copy");
+        const item = (state.history || []).find(h => h.id === id);
+        if(!item) return;
+        const ok = await copyText(workoutText(item));
+        if(!ok) alert("No se pudo copiar.");
       };
     });
   }
