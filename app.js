@@ -42,6 +42,7 @@ let calView = { y: new Date().getFullYear(), m: new Date().getMonth() };
 /* ===== Descanso (global) ===== */
 let restTicker = null;
 let globalTimerEndAt = null;
+let notifiedRestEndAt = null;
 
 /* ================= UTIL ================= */
 
@@ -207,6 +208,10 @@ function updateRestTimers(){
 
   const ms = globalTimerEndAt - now;
   if(ms <= 0){
+    if(notifiedRestEndAt !== globalTimerEndAt){
+      notifiedRestEndAt = globalTimerEndAt;
+      notifyRestDone();
+    }
     globalTimerEndAt = null;
     $globalTimer.textContent = "Listo";
     $globalTimer.classList.remove("globalTimer--active");
@@ -223,8 +228,47 @@ function updateRestTimers(){
 
 function startRestTimer(exId, minutes){
   globalTimerEndAt = Date.now() + (minutes * 60 * 1000);
+  notifiedRestEndAt = null;
   if(!restTicker) restTicker = setInterval(updateRestTimers, 1000);
   updateRestTimers();
+}
+
+async function ensureNotificationPermission(){
+  if(!("Notification" in window)) return "denied";
+  if(Notification.permission === "granted") return "granted";
+  if(Notification.permission === "denied") return "denied";
+  try{
+    return await Notification.requestPermission();
+  }catch{
+    return "denied";
+  }
+}
+
+async function notifyRestDone(){
+  const title = "Tiempo terminado";
+  const body = "Ya podés hacer tu próxima serie";
+
+  if(!("Notification" in window)) return;
+  if(Notification.permission !== "granted") return;
+
+  try{
+    if(navigator.serviceWorker?.ready){
+      const reg = await navigator.serviceWorker.ready;
+      if(reg?.showNotification){
+        await reg.showNotification(title, {
+          body,
+          icon: "apple-touch-icon.png",
+          badge: "apple-touch-icon.png",
+          tag: "rest-timer"
+        });
+        return;
+      }
+    }
+  }catch{}
+
+  try{
+    new Notification(title, { body, tag: "rest-timer" });
+  }catch{}
 }
 
 function linePoints(values, w, h, padding){
@@ -450,7 +494,7 @@ function renderCalendarForDay(day, hostEl){
   const startDow = (first.getDay() + 6) % 7;
   const daysInMonth = last.getDate();
 
-  const entries = (state.history || []).filter(h => h.dayId === day.id);
+  const entries = (state.history || []);
   const map = new Map();
   for(const e of entries){
     const key = ymdFromISO(e.at);
@@ -559,6 +603,10 @@ function renderCalendarForDay(day, hostEl){
     const dt = new Date(y, m, d);
     const key = ymdLocal(dt);
     const list = map.get(key) || [];
+    const marks = list.map(it=>{
+      const ch = String(it.dayName || "").trim().charAt(0).toUpperCase();
+      return ch || "•";
+    });
 
     const cell = document.createElement("div");
     cell.className = "calCell";
@@ -568,6 +616,7 @@ function renderCalendarForDay(day, hostEl){
           <div class="calDayNum">${d}</div>
           ${list.length ? `<div class="calBadge">${list.length}</div>` : ``}
         </div>
+        ${marks.length ? `<div class="calMarks">${marks.map(m=>`<span class="calMark">${esc(m)}</span>`).join("")}</div>` : ``}
       </button>
     `;
 
@@ -1301,6 +1350,7 @@ function renderWorkoutView(){
         ex.seriesCount = count + 1;
         saveState();
         updateSeriesUI();
+        ensureNotificationPermission();
         startRestTimer(ex.id, restModeMinutes);
       };
 
@@ -1411,6 +1461,21 @@ function bindTimerReset(){
     globalTimerEndAt = null;
     updateRestTimers();
   };
+}
+
+function bindNotifyButton(){
+  const btn = document.getElementById("notifyBtn");
+  if(!btn) return;
+  btn.onclick = ()=>{
+    ensureNotificationPermission();
+  };
+}
+
+function syncTopbarHeight(){
+  const topbar = document.querySelector(".topbar");
+  if(!topbar) return;
+  const h = topbar.offsetHeight || 0;
+  document.documentElement.style.setProperty("--topbar-h", `${h}px`);
 }
 
 /* ---------- DÍAS ---------- */
@@ -1560,6 +1625,9 @@ $fileInput.onchange = async ()=>{
 bindWeightButton();
 bindTimerMode();
 bindTimerReset();
+bindNotifyButton();
 normalizeStateExercises();
 normalizeHabits();
 render();
+syncTopbarHeight();
+window.addEventListener("resize", syncTopbarHeight);
