@@ -244,6 +244,13 @@ async function ensureNotificationPermission(){
   }
 }
 
+function updateNotifyButtonState(){
+  const btn = document.getElementById("notifyBtn");
+  if(!btn) return;
+  const on = ("Notification" in window) && Notification.permission === "granted";
+  btn.classList.toggle("notifyBtn--on", on);
+}
+
 async function notifyRestDone(){
   const title = "Tiempo terminado";
   const body = "Ya podés hacer tu próxima serie";
@@ -1466,8 +1473,10 @@ function bindTimerReset(){
 function bindNotifyButton(){
   const btn = document.getElementById("notifyBtn");
   if(!btn) return;
-  btn.onclick = ()=>{
-    ensureNotificationPermission();
+  updateNotifyButtonState();
+  btn.onclick = async ()=>{
+    await ensureNotificationPermission();
+    updateNotifyButtonState();
   };
 }
 
@@ -1631,3 +1640,4 @@ normalizeHabits();
 render();
 syncTopbarHeight();
 window.addEventListener("resize", syncTopbarHeight);
+updateNotifyButtonState();

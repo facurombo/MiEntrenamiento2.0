@@ -123,6 +123,11 @@ h1{margin:0; font-size:18px}
   transform:scale(.9);
 }
 
+.notifyBtn--on{
+  color:#3aa864;
+  border-color:rgba(58,168,100,0.7);
+}
+
 .globalTimer{
   font-weight:900;
   font-size:16px;
