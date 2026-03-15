@@ -1480,13 +1480,6 @@ function bindNotifyButton(){
   };
 }
 
-function syncTopbarHeight(){
-  const topbar = document.querySelector(".topbar");
-  if(!topbar) return;
-  const h = topbar.offsetHeight || 0;
-  document.documentElement.style.setProperty("--topbar-h", `${h}px`);
-}
-
 /* ---------- DÍAS ---------- */
 
 function renderDays(){
@@ -1638,6 +1631,4 @@ bindNotifyButton();
 normalizeStateExercises();
 normalizeHabits();
 render();
-syncTopbarHeight();
-window.addEventListener("resize", syncTopbarHeight);
 updateNotifyButtonState();

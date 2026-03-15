@@ -44,20 +44,6 @@
         <h1>Mi Entreno</h1>
         <div class="muted" id="subtitle">Rutinas guardadas en este iPhone</div>
       </div>
-
-      <div class="topbar__right">
-        <div class="toggleWrap">
-          <button id="timerReset" class="miniReset" type="button" title="Reset temporizador">⟲</button>
-          <span id="timerModeLabel" class="toggleLabel">1.5</span>
-          <button id="timerMode" class="toggleBtn" type="button" aria-pressed="false" title="Modo temporizador"></button>
-        </div>
-        <button id="notifyBtn" class="notifyBtn" type="button" title="Activar notificaciones" aria-label="Activar notificaciones">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 1 0-14 0v5l-2 2v1h18v-1l-2-2Z" fill="currentColor"/>
-          </svg>
-        </button>
-        <div id="globalTimer" class="globalTimer">--:--</div>
-      </div>
     </div>
 
     <div class="topbar__actions">
@@ -68,6 +54,20 @@
       <button id="btnWeight" class="btn">Progrs</button>
     </div>
   </header>
+
+  <div class="timerDock">
+    <div class="toggleWrap">
+      <button id="timerReset" class="miniReset" type="button" title="Reset temporizador">⟲</button>
+      <span id="timerModeLabel" class="toggleLabel">1.5</span>
+      <button id="timerMode" class="toggleBtn" type="button" aria-pressed="false" title="Modo temporizador"></button>
+    </div>
+    <button id="notifyBtn" class="notifyBtn" type="button" title="Activar notificaciones" aria-label="Activar notificaciones">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 1 0-14 0v5l-2 2v1h18v-1l-2-2Z" fill="currentColor"/>
+      </svg>
+    </button>
+    <div id="globalTimer" class="globalTimer">--:--</div>
+  </div>
 
   <main class="wrap">
     <nav class="tabs">
