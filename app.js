@@ -1220,7 +1220,7 @@ function renderWorkoutView(){
   document.getElementById("importWorkoutJson").onclick = () => {
     const dialog = document.createElement("dialog");
     const example = JSON.stringify([{name:"Press banca",note:"",sets:[{series:3,kg:60,reps:8,rir:2}]}], null, 2);
-    dialog.innerHTML = '<form class="modal"><h3>Importar entrenamiento JSON</h3><p>D?a: '+esc(day.name)+'</p><label class="field">Peg? el JSON<textarea class="input" rows="10" required></textarea></label><p>Formato exacto aceptado:</p><pre style="white-space:pre-wrap">'+esc(example)+'</pre><p role="alert"></p><div class="modal__actions"><button type="button" class="btn">Cancelar</button><button class="btn btn--primary" type="submit">Importar y guardar</button></div></form>';
+    dialog.innerHTML = '<form class="modal"><h3>Importar entrenamiento JSON</h3><textarea class="input" rows="10" required></textarea></label><p>Formato exacto aceptado:</p><pre style="white-space:pre-wrap">'+esc(example)+'</pre><p role="alert"></p><div class="modal__actions"><button type="button" class="btn">Cancelar</button><button class="btn btn--primary" type="submit">Importar y guardar</button></div></form>';
     document.body.appendChild(dialog);
     dialog.onclose = () => dialog.remove();
     dialog.querySelector('button').onclick = () => dialog.close();
@@ -1236,7 +1236,10 @@ function renderWorkoutView(){
             if(!['string','number'].includes(typeof v) || (v !== '' && (!Number.isFinite(Number(v)) || Number(v)<0))) throw Error('Cada serie requiere series, kg, reps y rir: n?meros no negativos o texto vac?o.');
           }
         }
-        if(saveWorkout(data.map(normalizeExercise))) dialog.close();
+        const exercises = data.map(normalizeExercise);
+        dialog.close();
+        // Allow the dialog to disappear before opening the native prompts.
+        requestAnimationFrame(() => setTimeout(() => saveWorkout(exercises), 0));
       } catch(err){ dialog.querySelector('[role="alert"]').textContent = err.message; }
     };
     dialog.showModal();
