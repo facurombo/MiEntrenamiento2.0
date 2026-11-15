@@ -1,9 +1,12 @@
-const CACHE_NAME = "mi-entreno-cache-v1";
+const CACHE_NAME = "mi-entreno-cache-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./qr-reader.js",
+  "./vendor/jsQR-1.4.0.js",
+  "./vendor/pako-inflate-2.1.0.min.js",
   "./manifest.webmanifest"
 ];
 

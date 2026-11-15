@@ -1166,6 +1166,7 @@ function renderWorkoutView(){
     <div style="margin-top:14px; display:flex; flex-direction:column; gap:10px;">
       <button id="saveWorkout" class="btn btn--primary">Guardar entrenamiento</button>
       <button id="importWorkoutJson" class="btn">Importar entrenamiento JSON</button>
+      <button id="readCompressedQr" class="btn">Leer QR comprimido</button>
       <div id="calendarBox"></div>
     </div>
   `;
@@ -1245,6 +1246,7 @@ function renderWorkoutView(){
     dialog.showModal();
     dialog.querySelector('textarea').focus();
   };
+  document.getElementById("readCompressedQr").onclick = openCompressedQrReader;
   document.getElementById("saveWorkout").onclick = () => saveWorkout(day.exercises);
   function saveWorkout(exercises){
     if(!day.exercises.length){
