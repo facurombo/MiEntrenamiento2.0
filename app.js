@@ -1165,6 +1165,7 @@ function renderWorkoutView(){
 
     <div style="margin-top:14px; display:flex; flex-direction:column; gap:10px;">
       <button id="saveWorkout" class="btn btn--primary">Guardar entrenamiento</button>
+      <button id="importWorkoutJson" class="btn">Importar entrenamiento JSON</button>
       <div id="calendarBox"></div>
     </div>
   `;
@@ -1216,7 +1217,33 @@ function renderWorkoutView(){
     render();
   };
 
-  document.getElementById("saveWorkout").onclick = () => {
+  document.getElementById("importWorkoutJson").onclick = () => {
+    const dialog = document.createElement("dialog");
+    const example = JSON.stringify([{name:"Press banca",note:"",sets:[{series:3,kg:60,reps:8,rir:2}]}], null, 2);
+    dialog.innerHTML = '<form class="modal"><h3>Importar entrenamiento JSON</h3><p>D?a: '+esc(day.name)+'</p><label class="field">Peg? el JSON<textarea class="input" rows="10" required></textarea></label><p>Formato exacto aceptado:</p><pre style="white-space:pre-wrap">'+esc(example)+'</pre><p role="alert"></p><div class="modal__actions"><button type="button" class="btn">Cancelar</button><button class="btn btn--primary" type="submit">Importar y guardar</button></div></form>';
+    document.body.appendChild(dialog);
+    dialog.onclose = () => dialog.remove();
+    dialog.querySelector('button').onclick = () => dialog.close();
+    dialog.querySelector('form').onsubmit = event => {
+      event.preventDefault();
+      try {
+        const data = JSON.parse(dialog.querySelector('textarea').value);
+        if(!Array.isArray(data) || !data.length) throw Error('Ingres? una lista de ejercicios.');
+        for(const ex of data){
+          if(!ex || typeof ex.name !== 'string' || !ex.name.trim() || !Array.isArray(ex.sets) || !ex.sets.length) throw Error('Cada ejercicio requiere name y sets.');
+          for(const set of ex.sets) for(const key of ['series','kg','reps','rir']) {
+            const v = set?.[key];
+            if(!['string','number'].includes(typeof v) || (v !== '' && (!Number.isFinite(Number(v)) || Number(v)<0))) throw Error('Cada serie requiere series, kg, reps y rir: n?meros no negativos o texto vac?o.');
+          }
+        }
+        if(saveWorkout(data.map(normalizeExercise))) dialog.close();
+      } catch(err){ dialog.querySelector('[role="alert"]').textContent = err.message; }
+    };
+    dialog.showModal();
+    dialog.querySelector('textarea').focus();
+  };
+  document.getElementById("saveWorkout").onclick = () => saveWorkout(day.exercises);
+  function saveWorkout(exercises){
     if(!day.exercises.length){
       alert("No hay ejercicios para guardar.");
       return;
@@ -1250,10 +1277,11 @@ function renderWorkoutView(){
       at: nowISO(),
       sleepScore,
       eatScore,
-      workout: cloneWorkoutDay(day),
+      workout: cloneWorkoutDay({...day, exercises}),
       habits
     };
 
+    day.exercises = exercises;
     state.history.unshift(entry);
     if(resetExerciseSeriesCounts(day)){
       saveState();
