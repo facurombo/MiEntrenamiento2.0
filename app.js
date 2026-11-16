@@ -24,6 +24,7 @@ const $bulkText  = document.getElementById("bulkText");
 
 /* ✅ modo vista */
 let viewMode = "workout"; // "workout" | "weight"
+let workoutCalSelectedDate = ymdLocal(new Date());
 let habitCalSelectedDate = null;
 let progressView = "charts"; // "charts" | "history"
 let progressHistoryType = null; // "weight" | "sleep" | "eat"
@@ -616,9 +617,9 @@ function renderCalendarForDay(day, hostEl){
     });
 
     const cell = document.createElement("div");
-    cell.className = "calCell";
+    cell.className = key === workoutCalSelectedDate ? "calCell calCell--selected" : "calCell";
     cell.innerHTML = `
-      <button data-key="${key}">
+      <button data-key="${key}" aria-pressed="${key === workoutCalSelectedDate}">
         <div class="calDayRow">
           <div class="calDayNum">${d}</div>
           ${list.length ? `<div class="calBadge">${list.length}</div>` : ``}
@@ -628,6 +629,14 @@ function renderCalendarForDay(day, hostEl){
     `;
 
     cell.querySelector("button").onclick = () => {
+      workoutCalSelectedDate = key;
+      $cells.querySelectorAll("[data-key]").forEach(button => {
+        const selected = button.dataset.key === key;
+        button.setAttribute("aria-pressed", String(selected));
+        button.parentElement.classList.toggle("calCell--selected", selected);
+      });
+      $detailVw.style.display = "none";
+      $detailVw.innerHTML = "";
       renderDayEntriesList(key, list);
       $detailLst.scrollIntoView({ behavior:"smooth", block:"start" });
     };
@@ -647,7 +656,7 @@ function renderCalendarForDay(day, hostEl){
     render();
   };
 
-  $detailLst.innerHTML = `<div class="pill">Tocá un día para ver registros</div>`;
+  renderDayEntriesList(workoutCalSelectedDate, map.get(workoutCalSelectedDate) || []);
 }
 
 function renderHabitsCalendar(hostEl){
@@ -816,6 +825,73 @@ function parseBulk(text){
   if(parsed && Array.isArray(parsed.days) && parsed.days[0]?.exercises) return parsed.days[0].exercises.map(normalizeExercise).filter(Boolean);
 
   throw new Error("Formato no reconocido. Pegá un array de ejercicios o {exercises:[...]}");
+}
+
+function validateWorkoutImport(data){
+  if(!Array.isArray(data) || !data.length) throw Error("Ingresá una lista de ejercicios.");
+  for(const ex of data){
+    if(!ex || typeof ex.name !== "string" || !ex.name.trim() || !Array.isArray(ex.sets) || !ex.sets.length) throw Error("Cada ejercicio requiere name y sets.");
+    for(const set of ex.sets) for(const key of ["series", "kg", "reps", "rir"]){
+      const v = set?.[key];
+      if(!["string", "number"].includes(typeof v) || (v !== "" && (!Number.isFinite(Number(v)) || Number(v) < 0))) throw Error("Cada serie requiere series, kg, reps y rir: números no negativos o texto vacío.");
+    }
+  }
+}
+
+// Convierte el texto de Zepp al mismo array de ejercicios del importador JSON.
+function parseZeppWorkout(text){
+  const exercises = [];
+  let exercise = null;
+  let exerciseLine = 0;
+  let nextSeries = 1;
+  const lines = text.split(/\r\n|\n|\r/);
+  const setPattern = /^(\d+)\s*:\s*(\d+)\s+reps\s*\/\s*(\d+(?:[.,]\d+)?|[.,]\d+)\s+kg\s*\/\s*RIR\s+(\d+)$/i;
+  const fail = (line, message) => {
+    throw Error(`Línea ${line}${exercise ? ` (${exercise.name})` : ""}: ${message}`);
+  };
+  const requireSets = () => {
+    if(exercise && !exercise.sets.length) fail(exerciseLine, "el ejercicio no tiene series.");
+  };
+
+  lines.forEach((raw, index) => {
+    const line = raw.trim();
+    const lineNumber = index + 1;
+    if(!line || /^Series del ejercicio$/i.test(line) || /^D[íi]a\s+\d+\s*:/i.test(line)) return;
+
+    const match = line.match(setPattern);
+    if(match){
+      if(!exercise) fail(lineNumber, "falta el nombre del ejercicio antes de la serie.");
+      const number = Number(match[1]);
+      const reps = Number(match[2]);
+      const kg = Number(match[3].replace(",", "."));
+      const rir = Number(match[4]);
+      if(number !== nextSeries) fail(lineNumber, `se esperaba la serie ${nextSeries} y se encontró la ${match[1]}.`);
+      if(!Number.isSafeInteger(reps) || reps < 1 || !Number.isFinite(kg) || !Number.isSafeInteger(rir)){
+        fail(lineNumber, "usá repeticiones enteras positivas, kilos no negativos y RIR entero no negativo.");
+      }
+      const previous = exercise.sets[exercise.sets.length - 1];
+      if(previous && previous.reps === reps && previous.kg === kg && previous.rir === rir){
+        previous.series++;
+      }else{
+        exercise.sets.push({ series: 1, kg, reps, rir });
+      }
+      nextSeries++;
+      return;
+    }
+
+    if(/^[+-]?\d+\s*[:.)]|\breps\b|\/\s*(?:RIR\b|[+-]?\d+\s*kg\b)|\bRIR\s*[+-]?\d/i.test(line) || !/\p{L}/u.test(line)){
+      fail(lineNumber, 'serie inválida. Usá el formato "1: 10 reps / 40 kg / RIR 0".');
+    }
+    requireSets();
+    exercise = { name: line, note: "", sets: [] };
+    exercises.push(exercise);
+    exerciseLine = lineNumber;
+    nextSeries = 1;
+  });
+
+  requireSets();
+  if(!exercises.length) throw Error("Pegá al menos un ejercicio con sus series.");
+  return exercises;
 }
 
 /* ================= PANTALLAS (tabs) ================= */
@@ -1165,8 +1241,7 @@ function renderWorkoutView(){
 
     <div style="margin-top:14px; display:flex; flex-direction:column; gap:10px;">
       <button id="saveWorkout" class="btn btn--primary">Guardar entrenamiento</button>
-      <button id="importWorkoutJson" class="btn">Importar entrenamiento JSON</button>
-      <button id="readCompressedQr" class="btn">Leer QR comprimido</button>
+      <button id="importWorkout" class="btn">Importar entrenamiento</button>
       <div id="calendarBox"></div>
     </div>
   `;
@@ -1218,38 +1293,46 @@ function renderWorkoutView(){
     render();
   };
 
-  document.getElementById("importWorkoutJson").onclick = () => {
+  document.getElementById("importWorkout").onclick = () => {
+    const importDate = workoutCalSelectedDate;
     const dialog = document.createElement("dialog");
-    const example = JSON.stringify([{name:"Press banca",note:"",sets:[{series:3,kg:60,reps:8,rir:2}]}], null, 2);
-    dialog.innerHTML = '<form class="modal"><h3>Importar entrenamiento JSON</h3><p>D?a: '+esc(day.name)+'</p><label class="field">Peg? el JSON<textarea class="input" rows="10" required></textarea></label><p>Formato exacto aceptado:</p><pre style="white-space:pre-wrap">'+esc(example)+'</pre><p role="alert"></p><div class="modal__actions"><button type="button" class="btn">Cancelar</button><button class="btn btn--primary" type="submit">Importar y guardar</button></div></form>';
+    const example = "Sentadilla hack squat\nSeries del ejercicio\n1: 10 reps / 40 kg / RIR 0\n2: 9 reps / 80,5 kg / RIR 1\n\nCurl femoral sentado\nSeries del ejercicio\n1: 10 reps / 60 kg / RIR 1";
+    dialog.setAttribute("aria-labelledby", "workoutImportTitle");
+    dialog.innerHTML = '<form class="modal"><h3 id="workoutImportTitle">Importar entrenamiento</h3><p>Día: '+esc(day.name)+' · Fecha: '+esc(importDate)+'</p><label class="field">Pegá el texto de Zepp<textarea class="input" rows="10" required aria-describedby="workoutImportError"></textarea></label><p>Ejemplo de formato (el encabezado del día se ignora):</p><pre style="white-space:pre-wrap">'+esc(example)+'</pre><p id="workoutImportError" role="alert"></p><div class="modal__actions"><button type="button" class="btn">Cancelar</button><button class="btn btn--primary" type="submit">Importar y guardar</button></div></form>';
     document.body.appendChild(dialog);
+    const textarea = dialog.querySelector("textarea");
+    const error = dialog.querySelector('[role="alert"]');
+    textarea.placeholder = example;
+    textarea.oninput = () => {
+      error.textContent = "";
+      textarea.removeAttribute("aria-invalid");
+    };
     dialog.onclose = () => dialog.remove();
     dialog.querySelector('button').onclick = () => dialog.close();
     dialog.querySelector('form').onsubmit = event => {
       event.preventDefault();
       try {
-        const data = JSON.parse(dialog.querySelector('textarea').value);
-        if(!Array.isArray(data) || !data.length) throw Error('Ingres? una lista de ejercicios.');
-        for(const ex of data){
-          if(!ex || typeof ex.name !== 'string' || !ex.name.trim() || !Array.isArray(ex.sets) || !ex.sets.length) throw Error('Cada ejercicio requiere name y sets.');
-          for(const set of ex.sets) for(const key of ['series','kg','reps','rir']) {
-            const v = set?.[key];
-            if(!['string','number'].includes(typeof v) || (v !== '' && (!Number.isFinite(Number(v)) || Number(v)<0))) throw Error('Cada serie requiere series, kg, reps y rir: n?meros no negativos o texto vac?o.');
-          }
-        }
-        if(saveWorkout(data.map(normalizeExercise))) dialog.close();
-      } catch(err){ dialog.querySelector('[role="alert"]').textContent = err.message; }
+        const data = parseZeppWorkout(textarea.value);
+        validateWorkoutImport(data);
+        if(saveWorkout(data.map(normalizeExercise), { date: importDate, replace: true })) dialog.close();
+      } catch(err){
+        error.textContent = err.message;
+        textarea.setAttribute("aria-invalid", "true");
+        textarea.focus();
+      }
     };
     dialog.showModal();
     dialog.querySelector('textarea').focus();
   };
-  document.getElementById("readCompressedQr").onclick = openCompressedQrReader;
   document.getElementById("saveWorkout").onclick = () => saveWorkout(day.exercises);
-  function saveWorkout(exercises){
-    if(!day.exercises.length){
+  function saveWorkout(exercises, { date = null, replace = false } = {}){
+    if(!exercises.length){
       alert("No hay ejercicios para guardar.");
       return;
     }
+
+    const existing = replace ? state.history.filter(e => e.dayId === day.id && ymdFromISO(e.at) === date) : [];
+    if(existing.length && !confirm(`Ya hay un entrenamiento de ${day.name} el ${date}. ¿Reemplazarlo?`)) return;
 
     let sleepScore = prompt("¿Qué tan bien dormiste? (1 a 10)");
     if(sleepScore === null) return;
@@ -1272,11 +1355,16 @@ function renderWorkoutView(){
       return { id: h.id, name: h.name, done };
     });
 
+    const at = new Date();
+    if(date){
+      const [year, month, dayOfMonth] = date.split("-").map(Number);
+      at.setFullYear(year, month - 1, dayOfMonth);
+    }
     const entry = {
       id: uid(),
       dayId: day.id,
       dayName: day.name,
-      at: nowISO(),
+      at: at.toISOString(),
       sleepScore,
       eatScore,
       workout: cloneWorkoutDay({...day, exercises}),
@@ -1284,12 +1372,17 @@ function renderWorkoutView(){
     };
 
     day.exercises = exercises;
+    if(existing.length){
+      const replacedIds = new Set(existing.map(e => e.id));
+      state.history = state.history.filter(e => !replacedIds.has(e.id));
+    }
     state.history.unshift(entry);
     if(resetExerciseSeriesCounts(day)){
       saveState();
     }
     saveState();
     render();
+    return true;
   };
 
   const host = document.getElementById("exercises");
@@ -1538,6 +1631,7 @@ function renderDays(){
       if(e.target.tagName === "BUTTON") return;
       selectedDayId = day.id;
       viewMode = "workout";
+      workoutCalSelectedDate = ymdLocal(new Date());
       calView = { y: new Date().getFullYear(), m: new Date().getMonth() };
       render();
       goToRoutineScreen(); // ✅ al elegir día, ir a Rutina
@@ -1582,6 +1676,7 @@ $btnAddDay.onclick = async ()=>{
   state.days.unshift({ id: uid(), name, exercises:[] });
   selectedDayId = state.days[0].id;
   viewMode = "workout";
+  workoutCalSelectedDate = ymdLocal(new Date());
   calView = { y: new Date().getFullYear(), m: new Date().getMonth() };
   saveState();
   render();
